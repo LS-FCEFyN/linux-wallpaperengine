@@ -136,9 +136,9 @@ add_subdirectory(${CEF_LIBCEF_DLL_WRAPPER_PATH} libcef_dll_wrapper)
 add_subdirectory(src/External/glslang-WallpaperEngine glslang)
 add_subdirectory(src/External/SPIRV-Cross-WallpaperEngine spirv-cross)
 add_subdirectory(src/External/kissfft kissfft)
-add_subdirectory(src/External/quickjs quickjs)
 add_subdirectory(src/External/argparse argparse)
 set(QJS_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+add_subdirectory(src/External/quickjs quickjs)
 if(BUILD_TESTING)
     add_subdirectory(src/External/Catch2)
 endif()
@@ -254,7 +254,6 @@ include_directories(
     src/External/json/include
     src/External/stb
     src/External/kissfft
-    src/External/quickjs
     ${MPV_INCLUDE_DIR}
     ${GLEW_INCLUDE_DIR}
     ${LZ4_INCLUDE_DIR}
@@ -592,7 +591,6 @@ target_include_directories(linux-wallpaperengine-lib PUBLIC
     src/External/json/include
     src/External/stb
     src/External/kissfft
-    src/External/quickjs
     ${MPV_INCLUDE_DIR}
     ${GLEW_INCLUDE_DIR}
     ${LZ4_INCLUDE_DIR}
