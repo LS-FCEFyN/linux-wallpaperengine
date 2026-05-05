@@ -7,6 +7,7 @@
 #include "WallpaperEngine/Data/Model/Object.h"
 #include "WallpaperEngine/Data/Model/Project.h"
 #include "WallpaperEngine/Logging/Log.h"
+#include "WallpaperEngine/Data/Model/Text.h"
 
 #include <glm/gtc/constants.hpp>
 #include <sstream>
@@ -52,10 +53,10 @@ ObjectUniquePtr ObjectParser::parse (const JSON& it, const Project& project) {
 	return parseImage (it, project, std::move (basedata), *imageIt);
     } else if (soundIt != it.end () && soundIt->is_array ()) {
 	return parseSound (it, std::move (basedata));
-    } else if (particleIt != it.end ()) {
+    } else if (particleIt != it.end () && particleIt->is_string ()) {
 	return parseParticle (it, project, std::move (basedata));
     } else if (textIt != it.end ()) {
-	sLog.error ("Text objects are not supported yet");
+		return parseText (it, project, std::move (basedata));
     } else if (lightIt != it.end ()) {
 	sLog.error ("Light objects are not supported yet");
     } else {
@@ -66,6 +67,52 @@ ObjectUniquePtr ObjectParser::parse (const JSON& it, const Project& project) {
     }
 
     return std::make_unique<Object> (std::move (basedata));
+}
+
+TextUniquePtr ObjectParser::parseText (const JSON& it, const Project& project, ObjectData base) {
+	const auto& properties = project.properties;
+
+	// The "text" field is an object: { "script": "...", "value": "..." }
+	const auto textIt = it.find ("text");
+
+	std::string script;
+	std::string value;
+
+	if (textIt != it.end () && textIt->is_object ()) {
+		const auto scriptIt = textIt->find ("script");
+		if (scriptIt != textIt->end () && scriptIt->is_string ()) {
+			script = scriptIt->get<std::string> ();
+		}
+		const auto valueIt = textIt->find ("value");
+		if (valueIt != textIt->end () && valueIt->is_string ()) {
+			value = valueIt->get<std::string> ();
+		}
+	}
+
+	// Background color — stored as "0.000 0.000 0.000" string or vec3
+	glm::vec3 backgroundColor = it.optional ("backgroundcolor", glm::vec3 (0.0f));
+
+	return std::make_unique<Text> (
+		std::move (base),
+		TextData {
+			.scale           = it.user ("scale",        properties, glm::vec3 (1.0f)),
+			.angles          = it.user ("angles",       properties, glm::vec3 (0.0f)),
+			.visible         = it.user ("visible",      properties, true),
+			.alpha           = it.user ("alpha",        properties, 1.0f),
+			.color           = it.user ("color",        properties, glm::vec3 (1.0f)),
+			.size            = it.optional ("size",     glm::vec2 (512.0f, 128.0f)),
+			.parallaxDepth   = it.user ("parallaxDepth", properties, glm::vec2 (0.0f)),
+			.font            = it.optional ("font",     std::string ("fonts/NotoSans-Regular.ttf")),
+			.pointsize       = it.optional ("pointsize", 16.0f),
+			.horizontalAlign = it.optional ("horizontalalign", std::string ("left")),
+			.verticalAlign   = it.optional ("verticalalign",   std::string ("center")),
+			.padding         = it.optional ("padding",  0.0f),
+			.opaqueBackground = it.optional ("opaquebackground", false),
+			.backgroundColor = backgroundColor,
+			.script          = std::move (script),
+			.value           = std::move (value),
+		}
+	);
 }
 
 std::vector<int> ObjectParser::parseDependencies (const JSON& it) {

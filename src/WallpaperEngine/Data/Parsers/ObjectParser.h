@@ -4,6 +4,7 @@
 
 #include "WallpaperEngine/Data/JSON.h"
 #include "WallpaperEngine/Data/Model/Object.h"
+#include "WallpaperEngine/Data/Model/Text.h"
 
 namespace WallpaperEngine::Data::Model {
 struct ObjectData;
@@ -23,6 +24,7 @@ private:
     static ImageUniquePtr
     parseImage (const JSON& it, const Project& project, ObjectData base, const std::string& image);
     static ParticleUniquePtr parseParticle (const JSON& it, const Project& project, ObjectData base);
+    static TextUniquePtr parseText (const JSON& it, const Project& project, ObjectData base);  // NEW
     static std::vector<ImageEffectUniquePtr> parseEffects (const JSON& it, const Project& project);
     static ImageEffectUniquePtr parseEffect (const JSON& it, const Project& project);
     static std::vector<ImageEffectPassOverrideUniquePtr>

@@ -35,6 +35,7 @@ find_package(MPV REQUIRED)
 find_package(LZ4 REQUIRED)
 find_package(FFMPEG REQUIRED)
 find_package(PulseAudio REQUIRED)
+find_package(Freetype REQUIRED)
 
 set(ENABLE_OPT OFF)
 set(SPIRV_CROSS_FORCE_PIC ON)
@@ -135,9 +136,9 @@ add_subdirectory(${CEF_LIBCEF_DLL_WRAPPER_PATH} libcef_dll_wrapper)
 add_subdirectory(src/External/glslang-WallpaperEngine glslang)
 add_subdirectory(src/External/SPIRV-Cross-WallpaperEngine spirv-cross)
 add_subdirectory(src/External/kissfft kissfft)
+add_subdirectory(src/External/quickjs quickjs)
 add_subdirectory(src/External/argparse argparse)
 set(QJS_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-add_subdirectory(src/External/quickjs quickjs)
 if(BUILD_TESTING)
     add_subdirectory(src/External/Catch2)
 endif()
@@ -253,6 +254,7 @@ include_directories(
     src/External/json/include
     src/External/stb
     src/External/kissfft
+    src/External/quickjs
     ${MPV_INCLUDE_DIR}
     ${GLEW_INCLUDE_DIR}
     ${LZ4_INCLUDE_DIR}
@@ -261,6 +263,7 @@ include_directories(
     ${PULSEAUDIO_INCLUDE_DIR}
     ${CEF_INCLUDE_PATH}
     ${CMAKE_SOURCE_DIR}
+    ${FREETYPE_INCLUDE_DIRS}
     ${X11_INCLUDES})
 
 set(COMMON_SOURCES
@@ -388,12 +391,16 @@ set(COMMON_SOURCES
     src/WallpaperEngine/Render/CObject.cpp
     src/WallpaperEngine/Render/CTexture.cpp
     src/WallpaperEngine/Render/CTexture.h
+    src/WallpaperEngine/Render/CTextTexture.cpp
+    src/WallpaperEngine/Render/CTextTexture.h
     src/WallpaperEngine/Render/TextureProvider.h
 
     src/WallpaperEngine/Render/Objects/CRenderable.cpp
     src/WallpaperEngine/Render/Objects/CRenderable.h
     src/WallpaperEngine/Render/Objects/CImage.h
     src/WallpaperEngine/Render/Objects/CImage.cpp
+    src/WallpaperEngine/Render/Objects/CText.h
+    src/WallpaperEngine/Render/Objects/CText.cpp
     src/WallpaperEngine/Render/Objects/CSound.h
     src/WallpaperEngine/Render/Objects/CSound.cpp
     src/WallpaperEngine/Render/Objects/CParticle.h
@@ -426,6 +433,7 @@ set(COMMON_SOURCES
     src/WallpaperEngine/Data/Model/Project.h
     src/WallpaperEngine/Data/Model/Wallpaper.h
     src/WallpaperEngine/Data/Model/Object.h
+    src/WallpaperEngine/Data/Model/Text.h
     src/WallpaperEngine/Data/Model/Material.h
     src/WallpaperEngine/Data/Model/Effect.h
     src/WallpaperEngine/Data/Model/Model.h
@@ -508,6 +516,7 @@ target_link_libraries (linux-wallpaperengine-lib PUBLIC
     ${LZ4_LIBRARY}
     ${SDL2_LIBRARIES}
     ${FFMPEG_LIBRARIES}
+    ${FREETYPE_LIBRARIES}
     ${MPV_LIBRARY}
     ${PULSEAUDIO_LIBRARY}
     ${WAYLAND_LIBRARIES}
@@ -583,6 +592,7 @@ target_include_directories(linux-wallpaperengine-lib PUBLIC
     src/External/json/include
     src/External/stb
     src/External/kissfft
+    src/External/quickjs
     ${MPV_INCLUDE_DIR}
     ${GLEW_INCLUDE_DIR}
     ${LZ4_INCLUDE_DIR}
@@ -592,7 +602,8 @@ target_include_directories(linux-wallpaperengine-lib PUBLIC
     ${CEF_INCLUDE_PATH}
     ${CMAKE_SOURCE_DIR}
     ${X11_INCLUDES}
-    ${WAYLAND_OUTPUT_DIR})
+    ${WAYLAND_OUTPUT_DIR}
+    ${FREETYPE_INCLUDE_DIRS})
 
 COPY_FILES(linux-wallpaperengine-lib "${CEF_BINARY_FILES}" "${CEF_BINARY_DIR}" "${TARGET_OUTPUT_DIRECTORY}")
 COPY_FILES(linux-wallpaperengine-lib "${CEF_RESOURCE_FILES}" "${CEF_RESOURCE_DIR}" "${TARGET_OUTPUT_DIRECTORY}")

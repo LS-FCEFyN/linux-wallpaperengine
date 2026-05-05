@@ -1,6 +1,7 @@
 #include "WallpaperEngine/Render/Objects/CImage.h"
 #include "WallpaperEngine/Render/Objects/CParticle.h"
 #include "WallpaperEngine/Render/Objects/CSound.h"
+#include "WallpaperEngine/Render/Objects/CText.h"
 
 #include "WallpaperEngine/Render/WallpaperState.h"
 
@@ -214,6 +215,18 @@ Render::CObject* CScene::createObject (const Object& object) {
 	}
 
 	renderObject = particle;
+    } else if (object.is<Text> ()) {
+        Objects::CText* text = nullptr;
+        try {
+            text = new Objects::CText (*this, *object.as<Text> ());
+            text->setup ();
+        } catch (std::runtime_error& ex) {
+            sLog.error ("Cannot create text object id=", object.id,
+                        " name='", object.as<Text> ()->name, "': ", ex.what ());
+            delete text;
+            return nullptr;
+        }
+        renderObject = text;
     } else {
 	sLog.debug ("Unknown object type, creating placeholder, empty object: ", object.id);
 	renderObject = new CObject (*this, object);
@@ -300,7 +313,7 @@ void CScene::renderFrame (const glm::ivec4& viewport) {
 	glPopDebugGroup ();
 #endif
     }
-
+    
     // bind the vertex array
     glBindVertexArray (this->m_vaoBuffer);
     // use the scene's framebuffer by default
@@ -338,7 +351,7 @@ void CScene::updateMouse (const glm::ivec4& viewport) {
     this->m_mousePositionNormalized.y = uvs.vstart + normalizedMouseY * (uvs.vend - uvs.vstart);
 
     // Invert previous normalization of Y to match what the shader expects
-    double mouseY = 1.0 - normalizedMouseY; 
+    double mouseY = 1.0 - normalizedMouseY;
 
     this->m_mousePosition.x = this->m_mousePositionNormalized.x;
     this->m_mousePosition.y = uvs.vstart + mouseY * (uvs.vend - uvs.vstart);
