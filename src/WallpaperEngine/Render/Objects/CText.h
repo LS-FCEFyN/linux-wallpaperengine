@@ -1,3 +1,44 @@
+/**
+ * @file CText.h
+ * @brief Renderable wallpaper text object (clocks, labels, scripted strings).
+ *
+ * @details
+ * `CText` is the render-side counterpart of the `Text` data model.  It reads
+ * a `Text` struct (parsed from `scene.json`) and produces a visible, blended
+ * quad every frame.
+ *
+ * ### scene.json fields consumed by this class
+ * | JSON key | Stored in | Purpose |
+ * |---|---|---|
+ * | `font` | `Text::font` | Path to the `.otf`/`.ttf` font file |
+ * | `pointsize` | `Text::pointsize` | FreeType pixel size (`pointsize * 2`) |
+ * | `color` | `Text::color` | RGB tint applied to the coverage mask |
+ * | `alpha` | `Text::alpha` | Global opacity of the text quad |
+ * | `scale` | `Text::scale` | Per-axis model-matrix scale |
+ * | `angles` | `Text::angles` | Euler angles (yaw / pitch / roll in radians) |
+ * | `origin` | `Object::origin` | World-space position (pixels from top-left) |
+ * | `visible` | `Text::visible` | Render guard; skips draw when false |
+ * | `text.value` | `Text::value` | Static fallback string |
+ * | `text.script` | `Text::script` | JS `update(value)` function body |
+ *
+ * ### Rendering pipeline
+ * 1. `setup()` loads the font via FreeType, compiles a bespoke coverage-mask
+ *    shader, allocates the VAO/VBO, and creates a `CTextTexture` that is
+ *    shared through `CRenderable::m_texture`.
+ * 2. `render()` evaluates the JS script each frame, rebuilds the texture only
+ *    when the resulting string has changed, recomputes the model matrix and
+ *    draws six vertices (two triangles) with alpha blending enabled.
+ *
+ * ### Shader
+ * The vertex shader (`QUAD_VERT`) transforms a centered `[-hw,+hw] × [-hh,+hh]`
+ * quad with a full MVP matrix.  The fragment shader (`QUAD_FRAG`) samples the
+ * single-channel `CTextTexture`, multiplies the red value (coverage) with the
+ * `uColor` uniform, and writes the result with pre-multiplied alpha blending
+ * (`GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA`).
+ *
+ * @see CTextTexture
+ * @see Text
+ */
 #pragma once
 
 #include "CRenderable.h"
@@ -21,69 +62,351 @@ using namespace WallpaperEngine::Data::Model;
 
 namespace WallpaperEngine::Render::Objects {
 
+/**
+ * @class CText
+ * @brief Renders a dynamic text object as a blended textured quad.
+ *
+ * @details
+ * Each wallpaper text object defined in `scene.json` (typically a clock whose
+ * content is computed by a JavaScript `update()` function) is represented by
+ * one `CText` instance.
+ *
+ * The class manages three independent subsystems, each with a matching
+ * setup / shutdown pair:
+ *
+ * | Subsystem | Init | Teardown | Responsibility |
+ * |---|---|---|---|
+ * | FreeType | `loadFont()` | `shutdownFont()` | Load `.otf`/`.ttf`, set pixel size |
+ * | OpenGL quad | `setupQuad()` | `shutdownQuad()` | Compile shader, allocate VAO/VBO |
+ * | Script | `setupScript()` | — | Detect JS body; mark ready flag |
+ *
+ * The font data buffer (`m_fontDataBuffer`) is kept alive for the entire
+ * lifetime of the object because FreeType's memory-face mode requires the
+ * raw bytes to remain valid as long as `m_ftFace` is open.
+ *
+ * @note `CText` is created and owned by `CObject`; `CObject` is declared a
+ *       `friend` so it can call the constructor directly.
+ */
 class CText final : public CRenderable {
     friend CObject;
+
 public:
+    // ─────────────────────────────────────────────────────────────────────────
+    // Construction / destruction
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * @brief Constructs the text renderable from scene data.
+     *
+     * @param scene Owning scene; used to access the camera (projection,
+     *              look-at, viewport dimensions) and the asset locator.
+     * @param text  Immutable data parsed from the `scene.json` text object
+     *              (font path, point size, color, script, …).
+     *
+     * @note No GPU resources are allocated here.  Call `setup()` before the
+     *       first `render()`.
+     */
     CText (Wallpapers::CScene& scene, const Text& text);
+
+    /**
+     * @brief Destructor.  Calls `shutdownFont()` and `shutdownQuad()`;
+     *        the shared `m_textTexture` releases the GL texture via its own
+     *        destructor.
+     */
     ~CText () override;
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // CRenderable interface
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * @brief One-time initialisation — idempotent after the first call.
+     *
+     * @details Execution order:
+     *  1. `loadFont()`   — opens the font asset, creates an `FT_Face`.
+     *  2. `setupQuad()`  — compiles the coverage-mask shader, allocates
+     *                      VAO / VBO.
+     *  3. `setupScript()` — detects whether the text has a JS body.
+     *  4. Allocates a `CTextTexture` and stores it in both `m_textTexture`
+     *     (for local use) and `CRenderable::m_texture` (for the pass system).
+     *  5. Evaluates the script / reads the static value, calls
+     *     `CTextTexture::rebuild()` to produce the first rasterised frame.
+     *  6. Sets `m_initialized = true`.
+     *
+     * @throws std::runtime_error if FreeType initialisation fails or the
+     *         font asset cannot be opened / read.
+     */
     void setup () override;
+
+    /**
+     * @brief Per-frame draw call — renders the text quad if visible.
+     *
+     * @details
+     *  - Returns immediately if `!m_initialized` or if `Text::visible` is
+     *    false (allowing the wallpaper engine to hide the object at runtime).
+     *  - Re-evaluates the JS script.  If the result differs from the cached
+     *    `m_currentText`, `CTextTexture::rebuild()` and `updateQuadGeometry()`
+     *    are called to refresh the GPU texture and quad dimensions.
+     *  - Recomputes `m_modelMatrix` from the current origin, scale and angles.
+     *  - Draws 6 vertices (`GL_TRIANGLES`) with `GL_BLEND` enabled using the
+     *    `GL_SRC_ALPHA / GL_ONE_MINUS_SRC_ALPHA` blend equation.
+     *
+     * @note The framebuffer binding is managed by `CScene`; `render()` must
+     *       not alter it.
+     */
     void render () override;
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // CRenderable visual-property overrides
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * @brief Returns a fixed brightness of 1.0 — text brightness is not
+     *        individually adjustable via the `scene.json` schema.
+     */
     [[nodiscard]] const float& getBrightness () const override;
+
+    /**
+     * @brief Returns the current alpha value from the `Text::alpha` user
+     *        setting (the `"alpha"` field in `scene.json`).
+     */
     [[nodiscard]] const float& getUserAlpha () const override;
+
+    /**
+     * @brief Same as `getUserAlpha()` — text has a single opacity level with
+     *        no separate "user" vs "composite" distinction.
+     */
     [[nodiscard]] const float& getAlpha () const override;
+
+    /**
+     * @brief Returns the RGB tint colour from the `Text::color` user setting
+     *        (the `"color"` field in `scene.json`, e.g. `"0.831 0.753 0.612"`
+     *        for the warm gold tone used in the clock example).
+     */
     [[nodiscard]] const glm::vec3& getColor () const override;
+
+    /**
+     * @brief Returns the RGBA form of the colour setting.
+     *
+     * @warning The `color` user setting is stored as a `vec3`; calling
+     *          `getVec4()` on it returns `w = 0`.  Prefer `getColor()` +
+     *          `getAlpha()` for blending purposes (as `render()` does).
+     */
     [[nodiscard]] const glm::vec4& getColor4 () const override;
+
+    /**
+     * @brief Returns the same value as `getColor()` — text objects have no
+     *        additional scene-level colour compositing.
+     */
     [[nodiscard]] const glm::vec3& getCompositeColor () const override;
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // Accessors
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * @brief Returns the immutable `Text` data struct this renderable was
+     *        built from.
+     */
     [[nodiscard]] const Text& getText () const;
 
 private:
-    // ── QuickJS ──────────────────────────────────────────────────────────────
-    void        setupScript    ();
+    // ─────────────────────────────────────────────────────────────────────────
+    // Script subsystem
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * @brief Determines at setup time whether a JS script body is present.
+     *
+     * @details If `Text::script` is empty the static `Text::value` string is
+     *          used as-is and `m_scriptReady` stays false, bypassing the
+     *          ScriptEngine entirely.
+     */
+    void setupScript ();
+
+    /**
+     * @brief Evaluates the JS `update(value)` function and returns the result.
+     *
+     * @details If `m_scriptReady` is false the cached `m_currentText` (or the
+     *          static `Text::value` if the cache is empty) is returned without
+     *          invoking the ScriptEngine.
+     *
+     *          When the engine returns a `DynamicValue` of type `String` its
+     *          string payload is returned; otherwise the previous value is
+     *          preserved so the display does not flicker on script errors.
+     *
+     * @return The string to display this frame.
+     */
     std::string evaluateScript ();
 
-    bool       m_scriptReady  { false };
+    /**
+     * @brief True once `setupScript()` has confirmed a non-empty JS body.
+     *        Guards the per-frame ScriptEngine call in `evaluateScript()`.
+     */
+    bool m_scriptReady { false };
 
-    // ── FreeType ─────────────────────────────────────────────────────────────
-    void loadFont    ();
-    void shutdownFont();
+    // ─────────────────────────────────────────────────────────────────────────
+    // FreeType subsystem
+    // ─────────────────────────────────────────────────────────────────────────
 
-    FT_Library           m_ftLibrary    { nullptr };
-    FT_Face              m_ftFace       { nullptr };
-    std::vector<uint8_t> m_fontDataBuffer;  // keeps font bytes alive for FreeType
+    /**
+     * @brief Initialises FreeType, reads the font asset into `m_fontDataBuffer`,
+     *        and creates an `FT_Face` via `FT_New_Memory_Face`.
+     *
+     * @details The pixel size is set to `Text::pointsize * 2` to match
+     *          Wallpaper Engine's original sizing convention.
+     *          `glPixelStorei(GL_UNPACK_ALIGNMENT, 1)` is also called here
+     *          because FreeType bitmaps are byte-aligned.
+     *
+     * @throws std::runtime_error on any FreeType or asset-loading failure.
+     */
+    void loadFont ();
 
-    // ── OpenGL quad ──────────────────────────────────────────────────────────
-    // The text texture itself lives in m_textTexture (a TextureProvider) which
-    // is also stored in CRenderable::m_texture so the rest of the pipeline can
-    // inspect it.  The quad VAO/VBO and compiled shader stay here because text
-    // needs a bespoke coverage-mask shader that is not part of the standard
-    // material pass system.
-    void setupQuad    ();
+    /**
+     * @brief Releases the FreeType face and library handles and clears the
+     *        in-memory font buffer.
+     */
+    void shutdownFont ();
+
+    /** @brief FreeType library handle; null until `loadFont()` succeeds. */
+    FT_Library m_ftLibrary { nullptr };
+
+    /** @brief FreeType face handle; null until `loadFont()` succeeds. */
+    FT_Face m_ftFace { nullptr };
+
+    /**
+     * @brief Raw font file bytes kept alive for the duration of `m_ftFace`.
+     *
+     * `FT_New_Memory_Face` does **not** copy the data — the caller must keep
+     * the buffer valid until `FT_Done_Face` is called.
+     */
+    std::vector<uint8_t> m_fontDataBuffer;
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // OpenGL quad subsystem
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * @brief Compiles `QUAD_VERT` + `QUAD_FRAG`, links `m_quadProgram`, and
+     *        allocates the VAO / VBO with `GL_DYNAMIC_DRAW` storage.
+     *
+     * @details Vertex layout (stride = 4 floats):
+     *  - attribute 0 — `vec2` position (pixels, object-space, Y-up)
+     *  - attribute 1 — `vec2` UV (0..1, Y-flipped to match FreeType's top-down
+     *                  bitmap orientation)
+     *
+     * @throws std::runtime_error if shader compilation or program linking fails.
+     */
+    void setupQuad ();
+
+    /**
+     * @brief Deletes the VAO, VBO and shader program.
+     */
     void shutdownQuad ();
-    void updateQuadGeometry ();   // called after every rebuild to resize the quad
 
-    GLuint m_quadVao     { 0 };
-    GLuint m_quadVbo     { 0 };
+    /**
+     * @brief Rebuilds the six-vertex quad to match the current texture size.
+     *
+     * @details Generates a centred rectangle with half-extents derived from
+     *          `CTextTexture::getTextureWidth/Height()`.  V-coordinates are
+     *          flipped (`v = 0` at the top) so the FreeType top-down bitmap
+     *          maps correctly onto OpenGL's bottom-up UV space.
+     *
+     *          Must be called after every `CTextTexture::rebuild()` to keep
+     *          the geometry in sync with the rasterised dimensions.
+     */
+    void updateQuadGeometry ();
+
+    /** @brief VAO wrapping the text quad geometry. */
+    GLuint m_quadVao { 0 };
+
+    /** @brief VBO holding the six `(pos.xy, uv.xy)` vertices. */
+    GLuint m_quadVbo { 0 };
+
+    /** @brief Linked shader program: coverage-mask vertex + fragment stages. */
     GLuint m_quadProgram { 0 };
 
-    // ── Text-as-TextureProvider ───────────────────────────────────────────────
-    // Owns the GPU texture.  CRenderable::m_texture points at this same object
-    // so that getTexture() / detectTexture() return the correct provider.
+    // ─────────────────────────────────────────────────────────────────────────
+    // Texture
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * @brief Shared ownership of the GPU-side text texture.
+     *
+     * Also stored in `CRenderable::m_texture` so that `getTexture()` and the
+     * standard pass / detection system can access the same provider without
+     * any extra indirection.  The `shared_ptr` ensures the GL texture is
+     * deleted exactly once when both references are dropped.
+     */
     std::shared_ptr<CTextTexture> m_textTexture;
 
-    // ── State ─────────────────────────────────────────────────────────────────
-    const Text& m_text;
-    std::string m_currentText;
-    bool        m_initialized { false };
+    // ─────────────────────────────────────────────────────────────────────────
+    // Per-frame state
+    // ─────────────────────────────────────────────────────────────────────────
 
+    /** @brief Immutable reference to the parsed `scene.json` text data. */
+    const Text& m_text;
+
+    /**
+     * @brief The string rendered in the last frame.
+     *
+     * Compared against the new `evaluateScript()` result every frame; a
+     * mismatch triggers `CTextTexture::rebuild()` and `updateQuadGeometry()`.
+     */
+    std::string m_currentText;
+
+    /**
+     * @brief Guards against double-initialisation; set to true at the end of
+     *        the first successful `setup()` call.
+     */
+    bool m_initialized { false };
+
+    /**
+     * @brief Model matrix rebuilt each frame from the object's origin, scale
+     *        and Euler angles (yaw → pitch → roll order).
+     *
+     * The Y component of `origin` is negated before use to convert from the
+     * scene's top-left origin convention to OpenGL's Y-up coordinate system.
+     */
     glm::mat4 m_modelMatrix { 1.0f };
+
+    /**
+     * @brief Recalculates `m_modelMatrix` from the current `Text` transform
+     *        settings and the scene camera's viewport dimensions.
+     *
+     * @details
+     *  - **Translation** — maps from top-left pixel origin to a centred
+     *    coordinate system (screen centre = origin).
+     *  - **Rotation** — applies yaw (Y), pitch (X), roll (Z) in that order.
+     *  - **Scale** — uniform per-axis scale from `Text::scale`.
+     */
     void updateModelMatrix ();
 
-    // ── Shader helpers ────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────────────
+    // Shader helpers
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * @brief Compiles a single GLSL shader stage.
+     *
+     * @param type   `GL_VERTEX_SHADER` or `GL_FRAGMENT_SHADER`.
+     * @param source Null-terminated GLSL source string.
+     * @return The compiled shader object handle.
+     *
+     * @throws std::runtime_error with the driver info-log on compilation failure.
+     */
     static GLuint compileShader (GLenum type, const char* source);
-    static GLuint linkProgram   (GLuint vert, GLuint frag);
+
+    /**
+     * @brief Links a vertex and fragment shader into a complete program.
+     *
+     * @param vert Compiled vertex shader handle.
+     * @param frag Compiled fragment shader handle.
+     * @return The linked program handle.
+     *
+     * @throws std::runtime_error with the driver info-log on link failure.
+     */
+    static GLuint linkProgram (GLuint vert, GLuint frag);
 };
 
 } // namespace WallpaperEngine::Render::Objects
