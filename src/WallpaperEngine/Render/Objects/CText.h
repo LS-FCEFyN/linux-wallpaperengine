@@ -12,7 +12,6 @@
 #include <glm/mat4x4.hpp>
 #include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
-#include <quickjs.h>
 #include <memory>
 #include <string>
 #include <vector>
@@ -43,12 +42,8 @@ public:
 private:
     // ── QuickJS ──────────────────────────────────────────────────────────────
     void        setupScript    ();
-    void        shutdownScript ();
     std::string evaluateScript ();
 
-    JSRuntime* m_jsRuntime    { nullptr };
-    JSContext* m_jsContext    { nullptr };
-    JSValue    m_jsUpdateFunc { JS_UNDEFINED };
     bool       m_scriptReady  { false };
 
     // ── FreeType ─────────────────────────────────────────────────────────────

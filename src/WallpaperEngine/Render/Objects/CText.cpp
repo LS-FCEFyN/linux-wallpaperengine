@@ -1,5 +1,6 @@
 #include "CText.h"
 #include "WallpaperEngine/Logging/Log.h"
+#include "WallpaperEngine/Scripting/ScriptEngine.h"
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -42,7 +43,6 @@ CText::CText (Wallpapers::CScene& scene, const Text& text) :
     CRenderable (scene, text, text.m_material), m_text (text) {}
 
 CText::~CText () {
-    shutdownScript ();
     shutdownFont   ();
     shutdownQuad   ();
     // m_textTexture is a shared_ptr; its destructor releases the GL texture.
@@ -133,87 +133,24 @@ void CText::setupScript () {
         return;
     }
 
-    m_jsRuntime = JS_NewRuntime ();
-    if (!m_jsRuntime) {
-        sLog.error ("CText: failed to create QuickJS runtime for '", m_text.font, "'");
-        return;
-    }
-
-    m_jsContext = JS_NewContext (m_jsRuntime);
-    if (!m_jsContext) {
-        sLog.error ("CText: failed to create QuickJS context");
-        return;
-    }
-
-    // Strip 'export' so the function lands as a plain global.
-    std::string src = m_text.script;
-    const std::string exportToken = "export function update";
-    const std::string plainToken  = "function update";
-    const size_t pos = src.find (exportToken);
-    if (pos != std::string::npos)
-        src.replace (pos, exportToken.size (), plainToken);
-
-    JSValue result = JS_Eval (
-        m_jsContext, src.c_str (), src.size (), "<text-script>", JS_EVAL_TYPE_GLOBAL);
-    if (JS_IsException (result)) {
-        JSValue exc      = JS_GetException (m_jsContext);
-        const char* msg  = JS_ToCString (m_jsContext, exc);
-        sLog.error ("CText: script eval error: ", msg ? msg : "(unknown)");
-        JS_FreeCString (m_jsContext, msg);
-        JS_FreeValue   (m_jsContext, exc);
-        JS_FreeValue   (m_jsContext, result);
-        return;
-    }
-    JS_FreeValue (m_jsContext, result);
-
-    JSValue global    = JS_GetGlobalObject (m_jsContext);
-    m_jsUpdateFunc    = JS_GetPropertyStr (m_jsContext, global, "update");
-    JS_FreeValue (m_jsContext, global);
-
-    if (!JS_IsFunction (m_jsContext, m_jsUpdateFunc)) {
-        sLog.error ("CText: script does not export an 'update' function");
-        return;
-    }
-
     m_scriptReady = true;
-}
-
-void CText::shutdownScript () {
-    if (m_jsContext) {
-        if (!JS_IsUndefined (m_jsUpdateFunc))
-            JS_FreeValue (m_jsContext, m_jsUpdateFunc);
-        JS_FreeContext (m_jsContext);
-        m_jsContext = nullptr;
-    }
-    if (m_jsRuntime) {
-        JS_FreeRuntime (m_jsRuntime);
-        m_jsRuntime = nullptr;
-    }
 }
 
 std::string CText::evaluateScript () {
     if (!m_scriptReady)
         return m_currentText.empty () ? m_text.value : m_currentText;
 
-    JSValue arg = JS_NewString (m_jsContext, m_currentText.c_str ());
-    JSValue ret = JS_Call (m_jsContext, m_jsUpdateFunc, JS_UNDEFINED, 1, &arg);
-    JS_FreeValue (m_jsContext, arg);
+    DynamicValue curValue;
+    curValue.update(m_currentText);
+    std::map<std::string, DynamicValue*> emptyProps;
+    auto res = WallpaperEngine::Scripting::ScriptEngine::instance ().evaluate (
+        m_text.script, emptyProps, curValue);
 
-    if (JS_IsException (ret)) {
-        JSValue exc     = JS_GetException (m_jsContext);
-        const char* msg = JS_ToCString (m_jsContext, exc);
-        sLog.error ("CText: script update() error: ", msg ? msg : "(unknown)");
-        JS_FreeCString (m_jsContext, msg);
-        JS_FreeValue   (m_jsContext, exc);
-        JS_FreeValue   (m_jsContext, ret);
-        return m_currentText;
+    if (res->getType () == DynamicValue::String) {
+        return res->getString ();
     }
 
-    const char* str = JS_ToCString (m_jsContext, ret);
-    std::string res = str ? str : m_currentText;
-    JS_FreeCString (m_jsContext, str);
-    JS_FreeValue   (m_jsContext, ret);
-    return res;
+    return m_currentText;
 }
 
 // ─────────────────────────────────────────────

@@ -50,6 +50,8 @@ JSValue ScriptEngine::dynamicValueToJS (const DynamicValue& value) const {
 	    return JS_NewInt32 (ctx, value.getInt ());
 	case DynamicValue::Boolean:
 	    return JS_NewBool (ctx, value.getBool ());
+	case DynamicValue::String:
+	    return JS_NewString (ctx, value.getString ().c_str ());
 	case DynamicValue::Vec2: {
 	    JSValue obj = JS_NewObject (ctx);
 	    JS_SetPropertyStr (ctx, obj, "x", JS_NewFloat64 (ctx, value.getVec2 ().x));
@@ -119,6 +121,14 @@ DynamicValueUniquePtr ScriptEngine::jsToDynamicValue (JSValue val, DynamicValue:
     }
     if (tag == JS_TAG_BOOL) {
 	result->update (static_cast<bool> (JS_ToBool (ctx, val)));
+	return result;
+    }
+    if (JS_IsString (val)) {
+	const char* str = JS_ToCString (ctx, val);
+	if (str) {
+	    result->update (std::string (str));
+	    JS_FreeCString (ctx, str);
+	}
 	return result;
     }
     if (JS_TAG_IS_FLOAT64 (tag)) {
