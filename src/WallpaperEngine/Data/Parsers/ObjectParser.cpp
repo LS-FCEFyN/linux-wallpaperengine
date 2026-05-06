@@ -589,7 +589,7 @@ ParticleUniquePtr ObjectParser::parseParticle (const JSON& it, const Project& pr
 
 ParticleEmitter ObjectParser::parseParticleEmitter (const JSON& it) {
     // Parse string name safely
-    std::string name = "";
+    std::string name;
     const auto nameIt = it.find ("name");
     if (nameIt != it.end () && nameIt->is_string ()) {
 	name = nameIt->get<std::string> ();
@@ -610,7 +610,7 @@ ParticleEmitter ObjectParser::parseParticleEmitter (const JSON& it) {
 	    return glm::vec3 (val, val, val);
 	}
 	if (fieldIt->is_array () && fieldIt->size () >= 3) {
-	    return glm::vec3 ((*fieldIt)[0].get<float> (), (*fieldIt)[1].get<float> (), (*fieldIt)[2].get<float> ());
+	    return  {(*fieldIt)[0].get<float> (), (*fieldIt)[1].get<float> (), (*fieldIt)[2].get<float> ()};
 	}
 	return defaultValue;
     };
@@ -877,7 +877,7 @@ ParticleControlPoint ObjectParser::parseParticleControlPoint (const JSON& it) {
 }
 
 ParticleChild ObjectParser::parseParticleChild (const JSON& it, const Project& project) {
-    std::string particleFile = "";
+    std::string particleFile;
     const auto particleIt = it.find ("particle");
     if (particleIt != it.end () && particleIt->is_string ()) {
 	particleFile = particleIt->get<std::string> ();
@@ -889,7 +889,7 @@ ParticleChild ObjectParser::parseParticleChild (const JSON& it, const Project& p
 	type = typeIt->get<std::string> ();
     }
 
-    std::string name = "";
+    std::string name;
     const auto nameIt = it.find ("name");
     if (nameIt != it.end () && nameIt->is_string ()) {
 	name = nameIt->get<std::string> ();

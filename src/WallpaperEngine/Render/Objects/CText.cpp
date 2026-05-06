@@ -1,5 +1,4 @@
 #include "CText.h"
-#include "WallpaperEngine/Logging/Log.h"
 #include "WallpaperEngine/Scripting/ScriptEngine.h"
 
 #include <glm/gtc/matrix_transform.hpp>
@@ -170,7 +169,7 @@ void CText::loadFont () {
     fontStream->seekg (0, std::ios::beg);
 
     m_fontDataBuffer.resize (fontDataSize);
-    fontStream->read (reinterpret_cast<char*> (m_fontDataBuffer.data ()), fontDataSize);
+    fontStream->read (reinterpret_cast<char*> (m_fontDataBuffer.data ()), fontDataSize); // Conversion from unsigned long to long is also implementation dependent
     if (!fontStream->good ())
         throw std::runtime_error ("CText: failed to read font data: " + fontPath);
 

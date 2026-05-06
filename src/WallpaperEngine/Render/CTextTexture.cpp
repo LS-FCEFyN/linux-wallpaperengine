@@ -31,7 +31,7 @@ void CTextTexture::rebuild (FT_Face face, const std::string& text) {
     for (unsigned char c : text) {
         if (FT_Load_Char (face, static_cast<FT_ULong> (c), FT_LOAD_RENDER) != 0)
             continue;
-        penX      += slot->advance.x >> 6;
+        penX      += slot->advance.x >> 6;  // Conversion from long to int is implementation dependent
         maxAscent  = std::max (maxAscent,  slot->bitmap_top);
         maxDescent = std::max (maxDescent,
                                static_cast<int> (slot->bitmap.rows) - slot->bitmap_top);
