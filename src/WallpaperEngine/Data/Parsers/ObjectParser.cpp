@@ -70,49 +70,66 @@ ObjectUniquePtr ObjectParser::parse (const JSON& it, const Project& project) {
 }
 
 TextUniquePtr ObjectParser::parseText (const JSON& it, const Project& project, ObjectData base) {
-	const auto& properties = project.properties;
+    const auto& properties = project.properties;
 
-	// The "text" field is an object: { "script": "...", "value": "..." }
-	const auto textIt = it.find ("text");
+    const auto textIt = it.find ("text");
 
-	std::string script;
-	std::string value;
+    std::string script;
+    std::string value;
+    std::map<std::string, DynamicValue> scriptProperties;
 
-	if (textIt != it.end () && textIt->is_object ()) {
-		const auto scriptIt = textIt->find ("script");
-		if (scriptIt != textIt->end () && scriptIt->is_string ()) {
-			script = scriptIt->get<std::string> ();
-		}
-		const auto valueIt = textIt->find ("value");
-		if (valueIt != textIt->end () && valueIt->is_string ()) {
-			value = valueIt->get<std::string> ();
-		}
-	}
+    if (textIt != it.end () && textIt->is_object ()) {
+        const auto scriptIt = textIt->find ("script");
+        if (scriptIt != textIt->end () && scriptIt->is_string ()) {
+            script = scriptIt->get<std::string> ();
+        }
+        const auto valueIt = textIt->find ("value");
+        if (valueIt != textIt->end () && valueIt->is_string ()) {
+            value = valueIt->get<std::string> ();
+        }
 
-	// Background color — stored as "0.000 0.000 0.000" string or vec3
-	glm::vec3 backgroundColor = it.optional ("backgroundcolor", glm::vec3 (0.0f));
+        const auto scriptPropsIt = textIt->find ("scriptproperties");
+        if (scriptPropsIt != textIt->end () && scriptPropsIt->is_object ()) {
+            for (const auto& [key, val] : scriptPropsIt->items ()) {
+                DynamicValue dv;
+                if (val.is_boolean ()) {
+                    dv.update (val.get<bool> ());
+                } else if (val.is_string ()) {
+                    dv.update (val.get<std::string> ());
+                } else if (val.is_number_integer ()) {
+                    dv.update (val.get<int> ());
+                } else if (val.is_number_float ()) {
+                    dv.update (static_cast<float> (val.get<double> ()));
+                }
+                scriptProperties [key] = dv;
+            }
+        }
+    }
 
-	return std::make_unique<Text> (
-		std::move (base),
-		TextData {
-			.scale           = it.user ("scale",        properties, glm::vec3 (1.0f)),
-			.angles          = it.user ("angles",       properties, glm::vec3 (0.0f)),
-			.visible         = it.user ("visible",      properties, true),
-			.alpha           = it.user ("alpha",        properties, 1.0f),
-			.color           = it.user ("color",        properties, glm::vec3 (1.0f)),
-			.size            = it.optional ("size",     glm::vec2 (512.0f, 128.0f)),
-			.parallaxDepth   = it.user ("parallaxDepth", properties, glm::vec2 (0.0f)),
-			.font            = it.optional ("font",     std::string ("fonts/NotoSans-Regular.ttf")),
-			.pointsize       = it.optional ("pointsize", 16.0f),
-			.horizontalAlign = it.optional ("horizontalalign", std::string ("left")),
-			.verticalAlign   = it.optional ("verticalalign",   std::string ("center")),
-			.padding         = it.optional ("padding",  0.0f),
-			.opaqueBackground = it.optional ("opaquebackground", false),
-			.backgroundColor = backgroundColor,
-			.script          = std::move (script),
-			.value           = std::move (value),
-		}
-	);
+    glm::vec3 backgroundColor = it.optional ("backgroundcolor", glm::vec3 (0.0f));
+
+    return std::make_unique<Text> (
+        std::move (base),
+        TextData {
+            .scale            = it.user ("scale",          properties, glm::vec3 (1.0f)),
+            .angles           = it.user ("angles",         properties, glm::vec3 (0.0f)),
+            .visible          = it.user ("visible",        properties, true),
+            .alpha            = it.user ("alpha",          properties, 1.0f),
+            .color            = it.user ("color",          properties, glm::vec3 (1.0f)),
+            .size             = it.optional ("size",       glm::vec2 (512.0f, 128.0f)),
+            .parallaxDepth    = it.user ("parallaxDepth",  properties, glm::vec2 (0.0f)),
+            .font             = it.optional ("font",       std::string ("fonts/NotoSans-Regular.ttf")),
+            .pointsize        = it.optional ("pointsize",  16.0f),
+            .horizontalAlign  = it.optional ("horizontalalign", std::string ("left")),
+            .verticalAlign    = it.optional ("verticalalign",   std::string ("center")),
+            .padding          = it.optional ("padding",    0.0f),
+            .opaqueBackground = it.optional ("opaquebackground", false),
+            .backgroundColor  = backgroundColor,
+            .script           = std::move (script),
+            .value            = std::move (value),
+            .scriptProperties = std::move (scriptProperties),
+        }
+    );
 }
 
 std::vector<int> ObjectParser::parseDependencies (const JSON& it) {

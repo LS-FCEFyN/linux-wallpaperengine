@@ -140,14 +140,17 @@ std::string CText::evaluateScript () {
         return m_currentText.empty () ? m_text.value : m_currentText;
 
     DynamicValue curValue;
-    curValue.update(m_currentText);
-    std::map<std::string, DynamicValue*> emptyProps;
-    auto res = WallpaperEngine::Scripting::ScriptEngine::instance ().evaluate (
-        m_text.script, emptyProps, curValue);
+    curValue.update (m_currentText);
 
-    if (res->getType () == DynamicValue::String) {
+    std::map<std::string, DynamicValue*> props;
+    for (auto& [key, val] : m_text.scriptProperties)
+        props[key] = const_cast<DynamicValue*> (&val);
+
+    auto res = WallpaperEngine::Scripting::ScriptEngine::instance ()
+                   .evaluate (m_text.script, props, curValue);
+
+    if (res->getType () == DynamicValue::String)
         return res->getString ();
-    }
 
     return m_currentText;
 }
@@ -178,6 +181,8 @@ void CText::loadFont () {
                             static_cast<FT_Long> (m_fontDataBuffer.size ()),
                             0, &m_ftFace))
         throw std::runtime_error ("CText: failed to load font face: " + fontPath);
+
+    FT_Select_Charmap(m_ftFace, FT_ENCODING_UNICODE); // Explicitly switch to UTF-8
 
     FT_Set_Pixel_Sizes (m_ftFace, 0, static_cast<FT_UInt> (m_text.pointsize * 2));
 

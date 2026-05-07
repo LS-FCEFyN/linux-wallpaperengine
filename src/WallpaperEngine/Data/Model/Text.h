@@ -193,6 +193,13 @@ struct TextData {
      *        initial `value` argument passed to the JS `update()` function.
      */
     std::string value;
+    
+    /**
+     * @brief Nested JSON inside text JSON that contains properties used in
+     *        script field of text, properties include but are not limited to
+     *        custom delimiter, show seconds, use 24 HS format
+     */
+    std::map<std::string, DynamicValue> scriptProperties;
 
     // ── Material ─────────────────────────────────────────────────────────────
 
@@ -252,6 +259,7 @@ public:
         backgroundColor (data.backgroundColor),
         script (std::move (data.script)),
         value (std::move (data.value)),
+        scriptProperties (std::move (data.scriptProperties)),
         m_material (std::move (data.m_material)) {}
 
     // ── Transform / visibility ───────────────────────────────────────────────
@@ -345,6 +353,13 @@ public:
      *        argument to the JS `update()` function otherwise.
      */
     std::string value;
+
+    /**
+     * @brief Nested JSON inside text JSON that contains properties used in
+     *        script field of text, properties include but are not limited to
+     *        custom delimiter, show seconds, use 24 HS format
+     */
+    std::map<std::string, DynamicValue> scriptProperties;
 
     // ── Material ─────────────────────────────────────────────────────────────
 
