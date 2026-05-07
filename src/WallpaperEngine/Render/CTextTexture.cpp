@@ -5,7 +5,6 @@
 
 using namespace WallpaperEngine::Render;
 
-// ─────────────────────────────────────────────────────────────────────────────
 CTextTexture::CTextTexture () = default;
 
 CTextTexture::~CTextTexture () {
@@ -15,6 +14,10 @@ CTextTexture::~CTextTexture () {
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// UTF-8 decoder — advances *p and writes the next code point.
+// Returns false when the NUL terminator is reached.
+// ─────────────────────────────────────────────────────────────────────────────
 static bool nextCodePoint (const unsigned char*& p, uint32_t& codePoint) {
     if (*p == '\0') {
 	return false;
@@ -51,11 +54,14 @@ void CTextTexture::rebuild (FT_Face face, const std::string& text) {
     }
 
     FT_GlyphSlot slot = face->glyph;
+    const int fontAscent = static_cast<int> (face->size->metrics.ascender >> 6);
 
     // ── Pass 1: measure total advance and vertical extents ───────────────────
     int penX = 0;
+    int maxLineWidth = 0;
     int maxAscent = 0;
     int maxDescent = 0;
+    int lineCount = 1;
 
     {
 	const auto* p = reinterpret_cast<const unsigned char*> (text.c_str ());
@@ -63,6 +69,17 @@ void CTextTexture::rebuild (FT_Face face, const std::string& text) {
 	uint32_t codePoint = 0;
 
 	while (nextCodePoint (p, codePoint)) {
+	    if (codePoint == '\r') {
+		continue; // ignore CR in CRLF
+	    }
+
+	    if (codePoint == '\n') {
+		maxLineWidth = std::max (maxLineWidth, penX);
+		penX = 0;
+		++lineCount;
+		continue;
+	    }
+
 	    if (FT_Load_Char (face, static_cast<FT_ULong> (codePoint), FT_LOAD_RENDER) != 0) {
 		continue;
 	    }
@@ -70,18 +87,21 @@ void CTextTexture::rebuild (FT_Face face, const std::string& text) {
 	    penX += slot->advance.x >> 6;
 
 	    maxAscent = std::max (maxAscent, slot->bitmap_top);
-
 	    maxDescent = std::max (maxDescent, static_cast<int> (slot->bitmap.rows) - slot->bitmap_top);
 	}
     }
 
-    const int width = std::max (1, penX);
-    const int height = std::max (1, maxAscent + maxDescent);
+    maxLineWidth = std::max (maxLineWidth, penX);
+
+    const int lineHeight = std::max (1, static_cast<int> (face->size->metrics.height >> 6));
+    const int width = std::max (1, maxLineWidth);
+    const int height = std::max (1, lineHeight * lineCount);
 
     std::vector<uint8_t> pixels (static_cast<size_t> (width) * height, 0);
 
     // ── Pass 2: rasterise each glyph into the pixel buffer ──────────────────
     penX = 0;
+    int penY = 0;
 
     {
 	const auto* p = reinterpret_cast<const unsigned char*> (text.c_str ());
@@ -89,13 +109,23 @@ void CTextTexture::rebuild (FT_Face face, const std::string& text) {
 	uint32_t codePoint = 0;
 
 	while (nextCodePoint (p, codePoint)) {
+	    if (codePoint == '\r') {
+		continue; // ignore CR in CRLF
+	    }
+
+	    if (codePoint == '\n') {
+		penX = 0;
+		penY += lineHeight;
+		continue;
+	    }
+
 	    if (FT_Load_Char (face, static_cast<FT_ULong> (codePoint), FT_LOAD_RENDER) != 0) {
 		continue;
 	    }
 
 	    const auto& bmp = slot->bitmap;
 	    const int originX = penX + slot->bitmap_left;
-	    const int originY = maxAscent - slot->bitmap_top;
+	    const int originY = penY + (fontAscent - slot->bitmap_top);
 
 	    for (unsigned int row = 0; row < bmp.rows; ++row) {
 		for (unsigned int col = 0; col < bmp.width; ++col) {
