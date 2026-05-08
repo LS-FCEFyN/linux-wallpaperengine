@@ -18,6 +18,20 @@
  * | `angles` | `Text::angles` | Euler angles (yaw / pitch / roll in radians) |
  * | `origin` | `Object::origin` | World-space position (pixels from top-left) |
  * | `visible` | `Text::visible` | Render guard; skips draw when false |
+ * | `anchor` | `Text::anchor` | Positioning mode; `"none"` = origin is top-left of size box |
+ * | `size` | `Text::size` | Pixel dimensions of the text bounding box |
+ * | `horizontalalign` | `Text::horizontalAlign` | Horizontal alignment within the box |
+ * | `verticalalign` | `Text::verticalAlign` | Vertical alignment within the box |
+ * | `padding` | `Text::padding` | Inner margin for alignment offsets |
+ * | `depthtest` | `Text::depthTest` | `"enabled"` / `"disabled"` |
+ * | `opaquebackground` | `Text::opaqueBackground` | Whether to draw a solid background rect |
+ * | `backgroundcolor` | `Text::backgroundColor` | RGB colour of the background rect |
+ * | `backgroundbrightness` | `Text::backgroundBrightness` | Brightness multiplier for the background |
+ * | `limitwidth` | `Text::limitWidth` | Whether to clip text to `maxwidth` |
+ * | `maxwidth` | `Text::maxWidth` | Maximum line width in pixels |
+ * | `limitrows` | `Text::limitRows` | Whether to clip text to `maxrows` lines |
+ * | `maxrows` | `Text::maxRows` | Maximum number of visible lines |
+ * | `limituseellipsis` | `Text::limitUseEllipsis` | Append `…` when a line is clipped |
  * | `text.value` | `Text::value` | Static fallback string |
  * | `text.script` | `Text::script` | JS `update(value)` function body |
  *
@@ -123,14 +137,16 @@ public:
      * @brief One-time initialisation — idempotent after the first call.
      *
      * @details Execution order:
-     *  1. `loadFont()`   — opens the font asset, creates an `FT_Face`.
-     *  2. `setupQuad()`  — compiles the coverage-mask shader, allocates
-     *                      VAO / VBO.
+     *  1. `loadFont()`    — opens the font asset, creates an `FT_Face`.
+     *  2. `setupQuad()`   — compiles the coverage-mask shader, allocates
+     *                       VAO / VBO for both text and background quads, and
+     *                       creates the 1×1 white texture used for the
+     *                       opaque-background rect.
      *  3. `setupScript()` — detects whether the text has a JS body.
      *  4. Allocates a `CTextTexture` and stores it in both `m_textTexture`
      *     (for local use) and `CRenderable::m_texture` (for the pass system).
-     *  5. Evaluates the script / reads the static value, calls
-     *     `CTextTexture::rebuild()` to produce the first rasterised frame.
+     *  5. Evaluates the script / reads the static value, applies text limits,
+     *     calls `CTextTexture::rebuild()` to produce the first rasterised frame.
      *  6. Sets `m_initialized = true`.
      *
      * @throws std::runtime_error if FreeType initialisation fails or the
@@ -148,8 +164,13 @@ public:
      *    `m_currentText`, `CTextTexture::rebuild()` and `updateQuadGeometry()`
      *    are called to refresh the GPU texture and quad dimensions.
      *  - Recomputes `m_modelMatrix` from the current origin, scale and angles.
+     *  - Optionally draws a solid background rectangle when
+     *    `Text::opaqueBackground` is true, tinted by `Text::backgroundColor`
+     *    and `Text::backgroundBrightness`.
      *  - Draws 6 vertices (`GL_TRIANGLES`) with `GL_BLEND` enabled using the
      *    `GL_SRC_ALPHA / GL_ONE_MINUS_SRC_ALPHA` blend equation.
+     *  - Temporarily disables `GL_DEPTH_TEST` when `Text::depthTest` is
+     *    `"disabled"`, restoring the default state after drawing.
      *
      * @note The framebuffer binding is managed by `CScene`; `render()` must
      *       not alter it.
@@ -180,8 +201,7 @@ public:
 
     /**
      * @brief Returns the RGB tint colour from the `Text::color` user setting
-     *        (the `"color"` field in `scene.json`, e.g. `"0.831 0.753 0.612"`
-     *        for the warm gold tone used in the clock example).
+     *        (the `"color"` field in `scene.json`).
      */
     [[nodiscard]] const glm::vec3& getColor () const override;
 
@@ -288,7 +308,9 @@ private:
 
     /**
      * @brief Compiles `QUAD_VERT` + `QUAD_FRAG`, links `m_quadProgram`, and
-     *        allocates the VAO / VBO with `GL_DYNAMIC_DRAW` storage.
+     *        allocates the VAO / VBO for the text quad with `GL_DYNAMIC_DRAW`
+     *        storage.  Also allocates the background quad VAO / VBO and the
+     *        1×1 `GL_RED` white texture used for solid background fills.
      *
      * @details Vertex layout (stride = 4 floats):
      *  - attribute 0 — `vec2` position (pixels, object-space, Y-up)
@@ -300,28 +322,46 @@ private:
     void setupQuad ();
 
     /**
-     * @brief Deletes the VAO, VBO and shader program.
+     * @brief Deletes all VAOs, VBOs, the white texture, and the shader program.
      */
     void shutdownQuad ();
 
     /**
-     * @brief Rebuilds the six-vertex quad to match the current texture size.
+     * @brief Rebuilds the six-vertex text quad to match the current texture
+     *        size, applying horizontal / vertical alignment offsets within the
+     *        `Text::size` bounding box when `Text::anchor` is `"none"`.
      *
-     * @details Generates a centred rectangle with half-extents derived from
-     *          `CTextTexture::getTextureWidth/Height()`.  V-coordinates are
-     *          flipped (`v = 0` at the top) so the FreeType top-down bitmap
-     *          maps correctly onto OpenGL's bottom-up UV space.
-     *
-     *          Must be called after every `CTextTexture::rebuild()` to keep
+     * @details Must be called after every `CTextTexture::rebuild()` to keep
      *          the geometry in sync with the rasterised dimensions.
      */
     void updateQuadGeometry ();
 
+    /**
+     * @brief Builds the six-vertex background quad from `Text::size`.
+     *
+     * @details Only needs to be called once during `setup()` because the box
+     *          dimensions do not change at runtime.
+     */
+    void updateBgGeometry ();
+
     /** @brief VAO wrapping the text quad geometry. */
     GLuint m_quadVao { 0 };
 
-    /** @brief VBO holding the six `(pos.xy, uv.xy)` vertices. */
+    /** @brief VBO holding the six `(pos.xy, uv.xy)` text vertices. */
     GLuint m_quadVbo { 0 };
+
+    /** @brief VAO wrapping the solid background rect geometry. */
+    GLuint m_bgVao { 0 };
+
+    /** @brief VBO holding the six `(pos.xy, uv.xy)` background vertices. */
+    GLuint m_bgVbo { 0 };
+
+    /**
+     * @brief 1×1 `GL_RED = 0xFF` texture used as a coverage mask for the
+     *        solid background rect (makes the fragment shader output full
+     *        opacity at every texel).
+     */
+    GLuint m_whiteTexture { 0 };
 
     /** @brief Linked shader program: coverage-mask vertex + fragment stages. */
     GLuint m_quadProgram { 0 };
@@ -348,10 +388,11 @@ private:
     const Text& m_text;
 
     /**
-     * @brief The string rendered in the last frame.
+     * @brief The string rendered in the last frame (after limit processing).
      *
      * Compared against the new `evaluateScript()` result every frame; a
-     * mismatch triggers `CTextTexture::rebuild()` and `updateQuadGeometry()`.
+     * mismatch triggers `applyTextLimits()`, `CTextTexture::rebuild()`, and
+     * `updateQuadGeometry()`.
      */
     std::string m_currentText;
 
@@ -365,8 +406,9 @@ private:
      * @brief Model matrix rebuilt each frame from the object's origin, scale
      *        and Euler angles (yaw → pitch → roll order).
      *
-     * The Y component of `origin` is negated before use to convert from the
-     * scene's top-left origin convention to OpenGL's Y-up coordinate system.
+     * When `Text::anchor` is `"none"` the origin represents the top-left
+     * corner of the `Text::size` box; the matrix is shifted by half the box
+     * dimensions so that the centred quad geometry lands in the correct place.
      */
     glm::mat4 m_modelMatrix { 1.0f };
 
@@ -376,11 +418,32 @@ private:
      *
      * @details
      *  - **Translation** — maps from top-left pixel origin to a centred
-     *    coordinate system (screen centre = origin).
+     *    coordinate system (screen centre = origin).  When `anchor == "none"`
+     *    an additional half-box offset is applied so that the origin is treated
+     *    as the top-left corner of the bounding box.
      *  - **Rotation** — applies yaw (Y), pitch (X), roll (Z) in that order.
      *  - **Scale** — uniform per-axis scale from `Text::scale`.
      */
     void updateModelMatrix ();
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Text-limit helpers
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * @brief Applies `limitRows` / `maxRows`, `limitWidth` / `maxWidth`, and
+     *        `limitUseEllipsis` constraints to @p text before rasterisation.
+     *
+     * @details Performs one lightweight measurement pass using FreeType advance
+     *          widths (no bitmap rendering).  Lines that exceed `maxWidth` are
+     *          truncated, optionally with a trailing `"..."` suffix.  Lines
+     *          beyond `maxRows` are discarded entirely.
+     *
+     * @param face The pre-loaded FreeType face with pixel size already set.
+     * @param text The raw string coming from `evaluateScript()`.
+     * @return A (possibly shortened) copy of @p text ready for `rebuild()`.
+     */
+    std::string applyTextLimits (FT_Face face, const std::string& text) const;
 
     // ─────────────────────────────────────────────────────────────────────────
     // Shader helpers

@@ -71,9 +71,7 @@ ObjectUniquePtr ObjectParser::parse (const JSON& it, const Project& project) {
 
 TextUniquePtr ObjectParser::parseText (const JSON& it, const Project& project, ObjectData base) {
     const auto& properties = project.properties;
-
     const auto textIt = it.find ("text");
-
     std::string script;
     std::string value;
     std::map<std::string, DynamicValue> scriptProperties;
@@ -87,7 +85,6 @@ TextUniquePtr ObjectParser::parseText (const JSON& it, const Project& project, O
         if (valueIt != textIt->end () && valueIt->is_string ()) {
             value = valueIt->get<std::string> ();
         }
-
         const auto scriptPropsIt = textIt->find ("scriptproperties");
         if (scriptPropsIt != textIt->end () && scriptPropsIt->is_object ()) {
             for (const auto& [key, val] : scriptPropsIt->items ()) {
@@ -111,27 +108,34 @@ TextUniquePtr ObjectParser::parseText (const JSON& it, const Project& project, O
     return std::make_unique<Text> (
         std::move (base),
         TextData {
-            .scale            = it.user ("scale",          properties, glm::vec3 (1.0f)),
-            .angles           = it.user ("angles",         properties, glm::vec3 (0.0f)),
-            .visible          = it.user ("visible",        properties, true),
-            .alpha            = it.user ("alpha",          properties, 1.0f),
-            .color            = it.user ("color",          properties, glm::vec3 (1.0f)),
-            .size             = it.optional ("size",       glm::vec2 (512.0f, 128.0f)),
-            .parallaxDepth    = it.user ("parallaxDepth",  properties, glm::vec2 (0.0f)),
-            .font             = it.optional ("font",       std::string ("fonts/NotoSans-Regular.ttf")),
-            .pointsize        = it.optional ("pointsize",  16.0f),
-            .horizontalAlign  = it.optional ("horizontalalign", std::string ("left")),
-            .verticalAlign    = it.optional ("verticalalign",   std::string ("center")),
-            .padding          = it.optional ("padding",    0.0f),
-            .opaqueBackground = it.optional ("opaquebackground", false),
-            .backgroundColor  = backgroundColor,
-            .script           = std::move (script),
-            .value            = std::move (value),
-            .scriptProperties = std::move (scriptProperties),
+            .scale                = it.user    ("scale",               properties, glm::vec3 (1.0f)),
+            .angles               = it.user    ("angles",              properties, glm::vec3 (0.0f)),
+            .visible              = it.user    ("visible",             properties, true),
+            .alpha                = it.user    ("alpha",               properties, 1.0f),
+            .color                = it.user    ("color",               properties, glm::vec3 (1.0f)),
+            .size                 = it.optional ("size",               glm::vec2 (512.0f, 128.0f)),
+            .parallaxDepth        = it.user    ("parallaxDepth",       properties, glm::vec2 (0.0f)),
+            .anchor               = it.optional ("anchor",             std::string ("none")),
+            .horizontalAlign      = it.optional ("horizontalalign",    std::string ("left")),
+            .verticalAlign        = it.optional ("verticalalign",      std::string ("center")),
+            .padding              = it.optional ("padding",            0.0f),
+            .depthTest            = it.optional ("depthtest",          std::string ("enabled")),
+            .opaqueBackground     = it.optional ("opaquebackground",   false),
+            .backgroundColor      = backgroundColor,
+            .backgroundBrightness = it.optional ("backgroundbrightness", 1.0f),
+            .limitWidth           = it.optional ("limitwidth",         false),
+            .maxWidth             = it.optional ("maxwidth",           0.0f),
+            .limitRows            = it.optional ("limitrows",          false),
+            .maxRows              = it.optional ("maxrows",            0),
+            .limitUseEllipsis     = it.optional ("limituseellipsis",   false),
+            .font                 = it.optional ("font",               std::string ("fonts/NotoSans-Regular.ttf")),
+            .pointsize            = it.optional ("pointsize",          16.0f),
+            .script               = std::move (script),
+            .value                = std::move (value),
+            .scriptProperties     = std::move (scriptProperties),
         }
     );
 }
-
 std::vector<int> ObjectParser::parseDependencies (const JSON& it) {
     const auto dependenciesIt = it.find ("dependencies");
 

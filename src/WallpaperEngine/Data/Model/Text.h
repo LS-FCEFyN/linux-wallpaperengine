@@ -18,11 +18,20 @@
  *   "scale": "1.000 1.000 1.000",
  *   "angles": "0.000 0.000 0.000",
  *   "origin": "1991.154 273.384 0.000",
- *   "horizontalalign": "center",
+ *   "anchor": "none",
+ *   "size": "1170.000 130.000",
+ *   "horizontalalign": "left",
  *   "verticalalign": "center",
- *   "padding": 32,
+ *   "padding": 0,
+ *   "depthtest": "enabled",
  *   "opaquebackground": false,
  *   "backgroundcolor": "0.000 0.000 0.000",
+ *   "backgroundbrightness": 1.0,
+ *   "limitwidth": false,
+ *   "maxwidth": 500.0,
+ *   "limitrows": false,
+ *   "maxrows": 1,
+ *   "limituseellipsis": false,
  *   "visible": true,
  *   "text": {
  *     "value": "<Clock>",
@@ -91,8 +100,7 @@ struct TextData {
     UserSettingUniquePtr alpha;
 
     /**
-     * @brief RGB text colour (`"color"` in scene.json, e.g. `"0.831 0.753 0.612"`
-     *        for the warm gold tone of the example clock).
+     * @brief RGB text colour (`"color"` in scene.json, e.g. `"0.831 0.753 0.612"`).
      *
      * @note This is a `vec3` setting; calling `getVec4()` on it yields `w = 0`.
      *       Use `getVec3()` + the separate `alpha` setting for blending.
@@ -108,45 +116,59 @@ struct TextData {
      */
     UserSettingUniquePtr parallaxDepth;
 
-    // ── Typography ───────────────────────────────────────────────────────────
+    // ── Layout / positioning ─────────────────────────────────────────────────
 
     /**
-     * @brief Asset-relative path to the font file (`"font"` in scene.json).
-     *        Supports `.otf` and `.ttf` formats via FreeType.
-     *        Example: `"fonts/Alcubierre.otf"`.
-     */
-    std::string font;
-
-    /**
-     * @brief FreeType pixel size divisor (`"pointsize"` in scene.json).
-     *        `CText::loadFont()` passes `pointsize * 2` to `FT_Set_Pixel_Sizes`
-     *        to match Wallpaper Engine's native sizing convention.
-     */
-    float pointsize;
-
-    /**
-     * @brief Horizontal text alignment hint (`"horizontalalign"` in scene.json).
-     *        Accepted values: `"left"`, `"center"`, `"right"`.
+     * @brief Positioning anchor mode (`"anchor"` in scene.json).
      *
-     * @note The current rasteriser in `CTextTexture` renders the full string in
-     *       a single left-to-right pass; this field is stored for completeness
-     *       and future multi-line support.
+     * Controls how `origin` is interpreted:
+     * | Value | Meaning |
+     * |---|---|
+     * | `"none"` | `origin` is the **top-left corner** of the `size` box |
+     * | anything else | `origin` is the **visual centre** of the text quad |
+     *
+     * `CText::updateModelMatrix()` shifts the model matrix by half the box
+     * dimensions when this is `"none"` so that centred quad geometry lands at
+     * the correct screen position.
+     */
+    std::string anchor;
+
+    /**
+     * @brief Horizontal text alignment within the bounding box
+     *        (`"horizontalalign"` in scene.json).
+     *        Accepted values: `"left"`, `"center"`, `"right"`.
+     *        Only applied when `anchor == "none"`.
      */
     std::string horizontalAlign;
 
     /**
-     * @brief Vertical text alignment hint (`"verticalalign"` in scene.json).
+     * @brief Vertical text alignment within the bounding box
+     *        (`"verticalalign"` in scene.json).
      *        Accepted values: `"top"`, `"center"`, `"bottom"`.
-     *
-     * @note Same caveat as `horizontalAlign` — currently informational only.
+     *        Only applied when `anchor == "none"`.
      */
     std::string verticalAlign;
 
     /**
      * @brief Inner padding in pixels around the text content
      *        (`"padding"` in scene.json).
+     *        Applied as an inset when computing alignment offsets.
      */
     float padding;
+
+    // ── Depth / rendering ────────────────────────────────────────────────────
+
+    /**
+     * @brief Depth-test mode (`"depthtest"` in scene.json).
+     *
+     * | Value | Behaviour |
+     * |---|---|
+     * | `"enabled"` (default) | `GL_DEPTH_TEST` is left in its current state |
+     * | `"disabled"` | `GL_DEPTH_TEST` is disabled for this object's draw call and restored afterwards |
+     */
+    std::string depthTest;
+
+    // ── Background ───────────────────────────────────────────────────────────
 
     /**
      * @brief When true the text background quad is drawn as a fully opaque
@@ -161,28 +183,69 @@ struct TextData {
      */
     glm::vec3 backgroundColor;
 
+    /**
+     * @brief Brightness multiplier applied to `backgroundColor` before upload
+     *        to the `uColor` uniform (`"backgroundbrightness"` in scene.json).
+     *        1.0 = unchanged; values < 1.0 darken the background.
+     */
+    float backgroundBrightness;
+
+    // ── Text limits ──────────────────────────────────────────────────────────
+
+    /**
+     * @brief When true, each line of text is clipped to `maxWidth` pixels
+     *        (`"limitwidth"` in scene.json).
+     */
+    bool limitWidth;
+
+    /**
+     * @brief Maximum line width in pixels; only enforced when `limitWidth`
+     *        is true (`"maxwidth"` in scene.json).
+     */
+    float maxWidth;
+
+    /**
+     * @brief When true, the rendered text is clipped to at most `maxRows`
+     *        lines (`"limitrows"` in scene.json).
+     */
+    bool limitRows;
+
+    /**
+     * @brief Maximum number of visible lines; only enforced when `limitRows`
+     *        is true (`"maxrows"` in scene.json).
+     */
+    int maxRows;
+
+    /**
+     * @brief When true and a line is clipped by `limitWidth`, the last three
+     *        characters before the cut are replaced with `"..."`
+     *        (`"limituseellipsis"` in scene.json).
+     */
+    bool limitUseEllipsis;
+
+    // ── Typography ───────────────────────────────────────────────────────────
+
+    /**
+     * @brief Asset-relative path to the font file (`"font"` in scene.json).
+     *        Supports `.otf` and `.ttf` formats via FreeType.
+     */
+    std::string font;
+
+    /**
+     * @brief FreeType pixel size divisor (`"pointsize"` in scene.json).
+     *        `CText::loadFont()` passes `pointsize * 2` to `FT_Set_Pixel_Sizes`
+     *        to match Wallpaper Engine's native sizing convention.
+     */
+    float pointsize;
+
     // ── Script / content ─────────────────────────────────────────────────────
 
     /**
      * @brief Body of the JavaScript `update(value)` function
      *        (`"text.script"` in scene.json).
      *
-     * The script exports a single `update` function that receives the previous
-     * display string and must return the new one.  The ScriptEngine evaluates
-     * this every frame via `CText::evaluateScript()`.  Empty string means the
-     * text is static and equals `value`.
-     *
-     * @par Example (clock script)
-     * @code{.js}
-     * 'use strict';
-     * let delimiter = ':';
-     * let use24hFormat = false;
-     * export function update(value) {
-     *     let t = new Date();
-     *     // ... format hours/minutes ...
-     *     return value;
-     * }
-     * @endcode
+     * Evaluated every frame by `CText::evaluateScript()` via the ScriptEngine.
+     * Empty string means the text is static and equals `value`.
      */
     std::string script;
 
@@ -193,11 +256,14 @@ struct TextData {
      *        initial `value` argument passed to the JS `update()` function.
      */
     std::string value;
-    
+
     /**
-     * @brief Nested JSON inside text JSON that contains properties used in
-     *        script field of text, properties include but are not limited to
-     *        custom delimiter, show seconds, use 24 HS format
+     * @brief Named properties made available to the script at runtime
+     *        (`"text.scriptproperties"` in scene.json).
+     *
+     * Values may be plain primitives or `{"user": "<propName>", "value": <default>}`
+     * objects — the latter are resolved to live `UserSetting` references by the
+     * parser so the script always sees the user's current preference.
      */
     std::map<std::string, DynamicValue> scriptProperties;
 
@@ -243,24 +309,32 @@ public:
      */
     Text (ObjectData base, TextData data) :
         Object (std::move (base)),
-        scale (std::move (data.scale)),
-        angles (std::move (data.angles)),
-        visible (std::move (data.visible)),
-        alpha (std::move (data.alpha)),
-        color (std::move (data.color)),
-        size (data.size),
-        parallaxDepth (std::move (data.parallaxDepth)),
-        font (std::move (data.font)),
-        pointsize (data.pointsize),
-        horizontalAlign (std::move (data.horizontalAlign)),
-        verticalAlign (std::move (data.verticalAlign)),
-        padding (data.padding),
-        opaqueBackground (data.opaqueBackground),
-        backgroundColor (data.backgroundColor),
-        script (std::move (data.script)),
-        value (std::move (data.value)),
-        scriptProperties (std::move (data.scriptProperties)),
-        m_material (std::move (data.m_material)) {}
+        scale             (std::move (data.scale)),
+        angles            (std::move (data.angles)),
+        visible           (std::move (data.visible)),
+        alpha             (std::move (data.alpha)),
+        color             (std::move (data.color)),
+        size              (data.size),
+        parallaxDepth     (std::move (data.parallaxDepth)),
+        anchor            (std::move (data.anchor)),
+        horizontalAlign   (std::move (data.horizontalAlign)),
+        verticalAlign     (std::move (data.verticalAlign)),
+        padding           (data.padding),
+        depthTest         (std::move (data.depthTest)),
+        opaqueBackground  (data.opaqueBackground),
+        backgroundColor   (data.backgroundColor),
+        backgroundBrightness (data.backgroundBrightness),
+        limitWidth        (data.limitWidth),
+        maxWidth          (data.maxWidth),
+        limitRows         (data.limitRows),
+        maxRows           (data.maxRows),
+        limitUseEllipsis  (data.limitUseEllipsis),
+        font              (std::move (data.font)),
+        pointsize         (data.pointsize),
+        script            (std::move (data.script)),
+        value             (std::move (data.value)),
+        scriptProperties  (std::move (data.scriptProperties)),
+        m_material        (std::move (data.m_material)) {}
 
     // ── Transform / visibility ───────────────────────────────────────────────
 
@@ -287,7 +361,6 @@ public:
 
     /**
      * @brief RGB tint applied to the glyph coverage mask in the fragment shader.
-     *        Example: `vec3(0.831, 0.753, 0.612)` (warm gold).
      *
      * @warning Stored as `vec3`; `getVec4()` will return `w = 0`.
      */
@@ -298,6 +371,86 @@ public:
 
     /** @brief Parallax depth weight (`vec2`); `1 1` = moves fully with camera. */
     UserSettingUniquePtr parallaxDepth;
+
+    // ── Layout / positioning ─────────────────────────────────────────────────
+
+    /**
+     * @brief Positioning anchor mode (`"none"` = origin is top-left of box;
+     *        any other value = origin is the visual centre of the quad).
+     *
+     * @see CText::updateModelMatrix for the coordinate-space conversion.
+     */
+    std::string anchor;
+
+    /**
+     * @brief Horizontal alignment within the bounding box.
+     *        Values: `"left"`, `"center"`, `"right"`.
+     *        Active only when `anchor == "none"`.
+     */
+    std::string horizontalAlign;
+
+    /**
+     * @brief Vertical alignment within the bounding box.
+     *        Values: `"top"`, `"center"`, `"bottom"`.
+     *        Active only when `anchor == "none"`.
+     */
+    std::string verticalAlign;
+
+    /** @brief Inner padding around the text content in pixels. */
+    float padding;
+
+    // ── Depth / rendering ────────────────────────────────────────────────────
+
+    /**
+     * @brief Depth-test mode for this object's draw call.
+     *        `"enabled"` (default) leaves `GL_DEPTH_TEST` untouched;
+     *        `"disabled"` suppresses it for this object only.
+     */
+    std::string depthTest;
+
+    // ── Background ───────────────────────────────────────────────────────────
+
+    /**
+     * @brief When true, a filled rectangle in `backgroundColor` is drawn
+     *        behind the glyphs.
+     */
+    bool opaqueBackground;
+
+    /** @brief Background fill colour; only visible when `opaqueBackground` is true. */
+    glm::vec3 backgroundColor;
+
+    /**
+     * @brief Brightness multiplier for the background colour [0, ∞).
+     *        Applied as `backgroundColor * backgroundBrightness` before the
+     *        `uColor` uniform is set.  1.0 = unchanged.
+     */
+    float backgroundBrightness;
+
+    // ── Text limits ──────────────────────────────────────────────────────────
+
+    /**
+     * @brief When true, each line is clipped to `maxWidth` pixels before
+     *        rasterisation.
+     */
+    bool limitWidth;
+
+    /** @brief Maximum line width in pixels; enforced when `limitWidth` is true. */
+    float maxWidth;
+
+    /**
+     * @brief When true, the string is clipped to at most `maxRows` newline-
+     *        separated lines before rasterisation.
+     */
+    bool limitRows;
+
+    /** @brief Maximum number of visible lines; enforced when `limitRows` is true. */
+    int maxRows;
+
+    /**
+     * @brief When true and a line is clipped by `limitWidth`, the truncated
+     *        tail is replaced with `"..."`.
+     */
+    bool limitUseEllipsis;
 
     // ── Typography ───────────────────────────────────────────────────────────
 
@@ -314,36 +467,11 @@ public:
      */
     float pointsize;
 
-    /**
-     * @brief Horizontal alignment hint (`"left"` / `"center"` / `"right"`).
-     *        Stored for future multi-line layout support.
-     */
-    std::string horizontalAlign;
-
-    /**
-     * @brief Vertical alignment hint (`"top"` / `"center"` / `"bottom"`).
-     *        Stored for future multi-line layout support.
-     */
-    std::string verticalAlign;
-
-    /** @brief Inner padding around the text content in pixels. */
-    float padding;
-
-    /**
-     * @brief When true, a filled rectangle in `backgroundColor` is drawn
-     *        behind the glyphs.
-     */
-    bool opaqueBackground;
-
-    /** @brief Background fill colour; only visible when `opaqueBackground` is true. */
-    glm::vec3 backgroundColor;
-
     // ── Script / content ─────────────────────────────────────────────────────
 
     /**
      * @brief Full JavaScript source of the `update(value)` function.
-     *        Empty when the text is static.  Evaluated every frame by
-     *        `CText::evaluateScript()` via the ScriptEngine.
+     *        Empty when the text is static.
      */
     std::string script;
 
@@ -355,9 +483,12 @@ public:
     std::string value;
 
     /**
-     * @brief Nested JSON inside text JSON that contains properties used in
-     *        script field of text, properties include but are not limited to
-     *        custom delimiter, show seconds, use 24 HS format
+     * @brief Named properties made available to the script at runtime.
+     *
+     * Primitive entries are stored directly.  Object entries of the form
+     * `{"user": "<propName>", "value": <default>}` are resolved by the parser
+     * to the live `UserSetting` value so the script always reflects the user's
+     * current preference.
      */
     std::map<std::string, DynamicValue> scriptProperties;
 
