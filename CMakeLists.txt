@@ -455,6 +455,8 @@ set(COMMON_SOURCES
     src/WallpaperEngine/Data/Utils/BinaryReader.h
     src/WallpaperEngine/Data/Utils/MemoryStream.h
     src/WallpaperEngine/Data/Utils/SFINAE.h
+    src/WallpaperEngine/Data/Utils/UTF8.cpp
+    src/WallpaperEngine/Data/Utils/UTF8.h
     src/WallpaperEngine/Data/Parsers/EffectParser.cpp
     src/WallpaperEngine/Data/Parsers/EffectParser.h
     src/WallpaperEngine/Data/Parsers/ProjectParser.cpp
