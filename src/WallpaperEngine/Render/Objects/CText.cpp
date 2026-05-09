@@ -1,5 +1,6 @@
 #include "CText.h"
 #include "WallpaperEngine/Scripting/ScriptEngine.h"
+#include "WallpaperEngine/Data/Utils/UTF8.h"
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -8,6 +9,7 @@
 #include <vector>
 
 using namespace WallpaperEngine::Render::Objects;
+using namespace WallpaperEngine::Utils;
 
 // ─────────────────────────────────────────────
 // Quad shader — renders text coverage texture
@@ -35,38 +37,6 @@ void main () {
     FragColor = vec4 (uColor.rgb, uColor.a * coverage);
 }
 )";
-
-// ─────────────────────────────────────────────────────────────────────────────
-// UTF-8 decoder — shared with CTextTexture logic; advances *p and writes the
-// next code point.  Returns false when the NUL terminator is reached.
-// NOTE: keep in sync with the identical copy in CTextTexture.cpp, or move
-//       both to a shared utility header.
-// ─────────────────────────────────────────────────────────────────────────────
-static bool nextCodePoint (const unsigned char*& p, uint32_t& codePoint) {
-    if (*p == '\0')
-        return false;
-
-    if (*p < 0x80) {
-        codePoint = *p++;
-    } else if ((*p & 0xE0) == 0xC0) {
-        codePoint = (*p++ & 0x1F) << 6;
-        codePoint |= (*p++ & 0x3F);
-    } else if ((*p & 0xF0) == 0xE0) {
-        codePoint = (*p++ & 0x0F) << 12;
-        codePoint |= (*p++ & 0x3F) << 6;
-        codePoint |= (*p++ & 0x3F);
-    } else if ((*p & 0xF8) == 0xF0) {
-        codePoint = (*p++ & 0x07) << 18;
-        codePoint |= (*p++ & 0x3F) << 12;
-        codePoint |= (*p++ & 0x3F) << 6;
-        codePoint |= (*p++ & 0x3F);
-    } else {
-        ++p;
-        codePoint = '?';
-    }
-
-    return true;
-}
 
 // ─────────────────────────────────────────────
 // Construction / destruction
