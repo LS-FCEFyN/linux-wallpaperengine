@@ -402,28 +402,43 @@ void CText::updateModelMatrix () {
 
     const glm::vec3 origin = getObject ().origin->value->getVec3 ();
 
-    // Convert from top-left pixel space to a centred coordinate system where
-    // (0,0) is the screen centre and Y points upward.
     float cx =  (origin.x - screenW * 0.5f);
     float cy = -(origin.y - screenH * 0.5f);
 
-    // When anchor is "none" the origin is the TOP-LEFT corner of the size box,
-    // not the visual centre of the text quad.  Shift by half the box so that
-    // the centred quad geometry and the alignment offsets in updateQuadGeometry
-    // land in the correct positions.
-    /*if (m_text.anchor == "none") {
-        cx +=  m_text.size.x * 0.5f;
-        cy -= m_text.size.y * 0.5f;   // Y is flipped (cy increases upward)
-    }*/
+    // When anchor is "none", origin is not the visual centre — it is the edge
+    // of the box that corresponds to the alignment direction.  Shift to the
+    // box centre so the centred quad geometry and alignment offsets in
+    // updateQuadGeometry land in the right place.
+    //
+    //  horizontalalign   origin point     shift to centre
+    //  ────────────────  ───────────────  ──────────────────
+    //  "left"            left edge        +size.x / 2
+    //  "center"          centre           none
+    //  "right"           right edge       -size.x / 2
+    //
+    //  verticalalign     origin point     shift to centre (OpenGL Y-up)
+    //  ────────────────  ───────────────  ──────────────────────────────
+    //  "top"             top edge         -size.y / 2
+    //  "center"          centre           none
+    //  "bottom"          bottom edge      +size.y / 2
+    if (m_text.anchor == "none") {
+        if      (m_text.horizontalAlign == "left")   cx += m_text.size.x * 0.5f;
+        else if (m_text.horizontalAlign == "right")  cx -= m_text.size.x * 0.5f;
+        // "center" → no horizontal shift; origin is already the box centre
+
+        if      (m_text.verticalAlign == "top")      cy -= m_text.size.y * 0.5f;
+        else if (m_text.verticalAlign == "bottom")   cy += m_text.size.y * 0.5f;
+        // "center" → no vertical shift
+    }
 
     const glm::vec3 scaleVec  = m_text.scale->value->getVec3  ();
     const glm::vec4 anglesVec = m_text.angles->value->getVec4 ();
 
     m_modelMatrix = glm::mat4 (1.0f);
     m_modelMatrix = glm::translate (m_modelMatrix, glm::vec3 (cx, cy, origin.z));
-    m_modelMatrix = glm::rotate (m_modelMatrix, anglesVec.y, glm::vec3 (0.0f, 1.0f, 0.0f)); // yaw
-    m_modelMatrix = glm::rotate (m_modelMatrix, anglesVec.x, glm::vec3 (1.0f, 0.0f, 0.0f)); // pitch
-    m_modelMatrix = glm::rotate (m_modelMatrix, anglesVec.z, glm::vec3 (0.0f, 0.0f, 1.0f)); // roll
+    m_modelMatrix = glm::rotate (m_modelMatrix, anglesVec.y, glm::vec3 (0.0f, 1.0f, 0.0f));
+    m_modelMatrix = glm::rotate (m_modelMatrix, anglesVec.x, glm::vec3 (1.0f, 0.0f, 0.0f));
+    m_modelMatrix = glm::rotate (m_modelMatrix, anglesVec.z, glm::vec3 (0.0f, 0.0f, 1.0f));
     m_modelMatrix = glm::scale  (m_modelMatrix, scaleVec);
 }
 
